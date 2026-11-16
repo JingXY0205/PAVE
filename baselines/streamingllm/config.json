@@ -32,7 +32,8 @@
     8192,
     16384,
     32768,
-    65536
+    65536,
+    131072
   ],
   "default_lengths": [
     4096,
@@ -47,5 +48,8 @@
     "recent_size": 4092,
     "prefill": "tokenwise",
     "rope_theta": 10000
+  },
+  "length_notes": {
+    "131072": "Extend the fixed 4-sink / 4092-recent policy with tokenwise Prefill. No archived 128K evaluation was found."
   }
 }

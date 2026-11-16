@@ -278,8 +278,9 @@ def main():
     run.add_argument('--model-path', type=Path, required=True)
     run.add_argument('--data-dir', type=Path, required=True, help='Prepared RULER llama2 directory')
     run.add_argument('--output-dir', type=Path, required=True, help='New directory for predictions and scores')
-    run.add_argument('--length', action='append', type=int, choices=config['lengths'],
-                     help=f"Repeat for multiple lengths. Default: {config['default_lengths']}")
+    run.add_argument('--length', '--lengths', dest='length', action='extend', nargs='+', type=int,
+                     metavar='TOKENS',
+                     help=f"Specify one or more lengths. Supported: {config['lengths']}. Default: {config['default_lengths']}")
     run.add_argument('--samples', type=int, default=SAMPLES_PER_TASK,
                      help='Exact prompt count per task. Default: %(default)s')
     run.add_argument('--device', default='cuda')
@@ -289,6 +290,10 @@ def main():
     else:
         if args.samples < 1:
             run.error('--samples must be positive')
+        for length in args.length or ():
+            if length not in config['lengths']:
+                reason = config.get('unavailable_lengths', {}).get(str(length), 'No configured RULER profile.')
+                run.error(f'{length} tokens: {reason} Supported lengths: {config["lengths"]}.')
         evaluate(args, config)
 
 

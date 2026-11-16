@@ -51,5 +51,8 @@
     "internal_chunk_length": 128,
     "use_flash": false,
     "offload_cache_to_cpu": false
+  },
+  "unavailable_lengths": {
+    "131072": "No 128K profile was found for the archived LCEG-512 checkpoint with GPU-resident KV."
   }
 }

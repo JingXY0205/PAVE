@@ -108,19 +108,35 @@ def load_model(args, config):
     ).to(args.device).eval()
 
 
-def generate_dense(model, input_ids, max_tokens):
+def generate_dense(model, input_ids, max_tokens, cache):
     from transformers import GenerationConfig
-    from transformers.cache_utils import DynamicCache
 
     generation = GenerationConfig(do_sample=False, num_beams=1, max_new_tokens=max_tokens,
                                   bos_token_id=1, eos_token_id=2, pad_token_id=0, use_cache=True)
     tokens = model.generate(input_ids=input_ids, attention_mask=input_ids.new_ones(input_ids.shape),
-                            generation_config=generation, past_key_values=DynamicCache())
+                            generation_config=generation, past_key_values=cache)
     return tokens[0, input_ids.shape[1]:].tolist()
 
 
 def load_generator(args, config):
     import torch
+    from transformers.cache_utils import DynamicCache
+
+    class PartialCPUCache(DynamicCache):
+        def __init__(self, first_cpu_layer):
+            super().__init__()
+            self.first_cpu_layer = first_cpu_layer
+
+        def update(self, key_states, value_states, layer_idx, cache_kwargs=None):
+            offload = layer_idx >= self.first_cpu_layer
+            if offload and layer_idx < len(self.key_cache):
+                self.key_cache[layer_idx] = self.key_cache[layer_idx].to(key_states.device)
+                self.value_cache[layer_idx] = self.value_cache[layer_idx].to(value_states.device)
+            keys, values = super().update(key_states, value_states, layer_idx, cache_kwargs)
+            if offload:
+                self.key_cache[layer_idx] = keys.to('cpu')
+                self.value_cache[layer_idx] = values.to('cpu')
+            return keys, values
 
     source = import_source(args.source_dir, 'chunkllama_attn_replace')
     source.replace_with_chunkllama(**config['attention'])
@@ -129,14 +145,23 @@ def load_generator(args, config):
     if any(layer.self_attn.forward.__func__ is not source.forward for layer in layers):
         raise RuntimeError('ChunkLlama patch is missing from a Llama attention layer')
 
-    def generate(input_ids, max_tokens):
+    def final_position(_module, inputs):
+        return (inputs[0][:, -1:, :], *inputs[1:])
+
+    def generate(input_ids, max_tokens, length):
         # Reset the extended rotary tables between independent requests.
         native_length = config['attention']['pretraining_length']
         for layer in layers:
             rotary = layer.self_attn.rotary_emb
             rotary._set_cos_sin_cache(native_length, rotary.inv_freq.device, torch.float32)
             rotary.max_seq_len = native_length
-        return generate_dense(model, input_ids, max_tokens)
+        first_cpu_layer = config['cpu_kv_from_layer'].get(str(length))
+        cache = DynamicCache() if first_cpu_layer is None else PartialCPUCache(first_cpu_layer)
+        # The archived 4K and CPU-KV runs projected only the final position.
+        if length == native_length or first_cpu_layer is not None:
+            with model.lm_head.register_forward_pre_hook(final_position):
+                return generate_dense(model, input_ids, max_tokens, cache)
+        return generate_dense(model, input_ids, max_tokens, cache)
 
     return generate
 
@@ -224,7 +249,7 @@ def evaluate(args, config):
             ids = sample.pop('ids')
             if ids[0] != 1 or ids.count(1) != 1:
                 raise ValueError(f"Expected one initial BOS for {sample['key']}")
-            token_ids = generate(torch.tensor([ids], device=device), sample['cap'])
+            token_ids = generate(torch.tensor([ids], device=device), sample['cap'], sample['length'])
             row = dict(sample, input_tokens=len(ids), output_tokens=len(token_ids),
                        prediction=tokenizer.decode(token_ids, skip_special_tokens=True))
             stream.write(json.dumps(row, ensure_ascii=False) + '\n')
@@ -249,8 +274,9 @@ def main():
     run.add_argument('--model-path', type=Path, required=True)
     run.add_argument('--data-dir', type=Path, required=True, help='Prepared RULER llama2 directory')
     run.add_argument('--output-dir', type=Path, required=True, help='New directory for predictions and scores')
-    run.add_argument('--length', action='append', type=int, choices=config['lengths'],
-                     help=f"Repeat for multiple lengths. Default: {config['default_lengths']}")
+    run.add_argument('--length', '--lengths', dest='length', action='extend', nargs='+', type=int,
+                     metavar='TOKENS',
+                     help=f"Specify one or more lengths. Supported: {config['lengths']}. Default: {config['default_lengths']}")
     run.add_argument('--samples', type=int, default=SAMPLES_PER_TASK,
                      help='Exact prompt count per task. Default: %(default)s')
     run.add_argument('--device', default='cuda')
@@ -263,6 +289,10 @@ def main():
     else:
         if args.samples < 1:
             run.error('--samples must be positive')
+        for length in args.length or ():
+            if length not in config['lengths']:
+                reason = config.get('unavailable_lengths', {}).get(str(length), 'No configured RULER profile.')
+                run.error(f'{length} tokens: {reason} Supported lengths: {config["lengths"]}.')
         evaluate(args, config)
 
 

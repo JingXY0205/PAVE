@@ -1,7 +1,6 @@
 """Run native dense attention on Llama-2-7B Base."""
 
 import argparse
-from functools import partial
 import hashlib
 from itertools import islice
 import json
@@ -93,7 +92,18 @@ def load_generator(args, config):
     model = load_model(args, config)
     if any(type(layer.self_attn).__name__ != 'LlamaFlashAttention2' for layer in model.model.layers):
         raise RuntimeError('Expected dense FlashAttention-2 on every layer')
-    return partial(generate_dense, model)
+
+    def final_position(_module, inputs):
+        # Keep dense attention while limiting logits to the position used by greedy decoding.
+        return (inputs[0][:, -1:, :], *inputs[1:])
+
+    def generate(input_ids, max_tokens, length):
+        if length >= 16384:
+            with model.lm_head.register_forward_pre_hook(final_position):
+                return generate_dense(model, input_ids, max_tokens)
+        return generate_dense(model, input_ids, max_tokens)
+
+    return generate
 
 
 def iter_inputs(data, protocol, tokenizer):
@@ -177,7 +187,7 @@ def evaluate(args, config):
             ids = sample.pop('ids')
             if ids[0] != 1 or ids.count(1) != 1:
                 raise ValueError(f"Expected one initial BOS for {sample['key']}")
-            token_ids = generate(torch.tensor([ids], device=device), sample['cap'])
+            token_ids = generate(torch.tensor([ids], device=device), sample['cap'], sample['length'])
             row = dict(sample, input_tokens=len(ids), output_tokens=len(token_ids),
                        prediction=tokenizer.decode(token_ids, skip_special_tokens=True))
             stream.write(json.dumps(row, ensure_ascii=False) + '\n')
@@ -202,8 +212,9 @@ def main():
     run.add_argument('--model-path', type=Path, required=True)
     run.add_argument('--data-dir', type=Path, required=True, help='Prepared RULER llama2 directory')
     run.add_argument('--output-dir', type=Path, required=True, help='New directory for predictions and scores')
-    run.add_argument('--length', action='append', type=int, choices=config['lengths'],
-                     help=f"Repeat for multiple lengths. Default: {config['default_lengths']}")
+    run.add_argument('--length', '--lengths', dest='length', action='extend', nargs='+', type=int,
+                     metavar='TOKENS',
+                     help=f"Specify one or more lengths. Supported: {config['lengths']}. Default: {config['default_lengths']}")
     run.add_argument('--samples', type=int, default=SAMPLES_PER_TASK,
                      help='Exact prompt count per task. Default: %(default)s')
     run.add_argument('--device', default='cuda')
@@ -213,6 +224,10 @@ def main():
     else:
         if args.samples < 1:
             run.error('--samples must be positive')
+        for length in args.length or ():
+            if length not in config['lengths']:
+                reason = config.get('unavailable_lengths', {}).get(str(length), 'No configured RULER profile.')
+                run.error(f'{length} tokens: {reason} Supported lengths: {config["lengths"]}.')
         evaluate(args, config)
 
 

@@ -41,6 +41,7 @@
     "distance_scale": 1.0
   },
   "lengths": [
+    4096,
     8192,
     16384,
     32768,
@@ -50,5 +51,11 @@
     8192,
     16384,
     32768
-  ]
+  ],
+  "unavailable_lengths": {
+    "131072": "The archived Llama-2 setup stops at 65536. No 128K RULER profile was found."
+  },
+  "length_notes": {
+    "4096": "Archived retrieval and Prefill preset at 4K. This runner retains its Transformers 4.38.2 dependency."
+  }
 }

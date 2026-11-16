@@ -113,10 +113,13 @@ def load_generator(args, config):
     model = load_model(args, config)
     source.patch_hf(model, attn_type='inf-llm', **config['attention'])
 
+    def final_position(_module, inputs):
+        return (inputs[0][:, -1:, :], *inputs[1:])
+
     def forward(ids, cache):
         return model(input_ids=ids, past_key_values=cache, use_cache=True, return_dict=True)
 
-    def generate(input_ids, max_tokens):
+    def greedy_decode(input_ids, max_tokens):
         rope = model.model.position_bias
         rope._seq_len_cached = -1
         rope._cos_cached = None
@@ -143,6 +146,12 @@ def load_generator(args, config):
             if token_id == 2:
                 break
         return generated
+
+    def generate(input_ids, max_tokens, length):
+        if length == 4096:
+            with model.lm_head.register_forward_pre_hook(final_position):
+                return greedy_decode(input_ids, max_tokens)
+        return greedy_decode(input_ids, max_tokens)
 
     return generate
 
@@ -230,7 +239,7 @@ def evaluate(args, config):
             ids = sample.pop('ids')
             if ids[0] != 1 or ids.count(1) != 1:
                 raise ValueError(f"Expected one initial BOS for {sample['key']}")
-            token_ids = generate(torch.tensor([ids], device=device), sample['cap'])
+            token_ids = generate(torch.tensor([ids], device=device), sample['cap'], sample['length'])
             row = dict(sample, input_tokens=len(ids), output_tokens=len(token_ids),
                        prediction=tokenizer.decode(token_ids, skip_special_tokens=True))
             stream.write(json.dumps(row, ensure_ascii=False) + '\n')
@@ -255,8 +264,9 @@ def main():
     run.add_argument('--model-path', type=Path, required=True)
     run.add_argument('--data-dir', type=Path, required=True, help='Prepared RULER llama2 directory')
     run.add_argument('--output-dir', type=Path, required=True, help='New directory for predictions and scores')
-    run.add_argument('--length', action='append', type=int, choices=config['lengths'],
-                     help=f"Repeat for multiple lengths. Default: {config['default_lengths']}")
+    run.add_argument('--length', '--lengths', dest='length', action='extend', nargs='+', type=int,
+                     metavar='TOKENS',
+                     help=f"Specify one or more lengths. Supported: {config['lengths']}. Default: {config['default_lengths']}")
     run.add_argument('--samples', type=int, default=SAMPLES_PER_TASK,
                      help='Exact prompt count per task. Default: %(default)s')
     run.add_argument('--device', default='cuda')
@@ -269,6 +279,10 @@ def main():
     else:
         if args.samples < 1:
             run.error('--samples must be positive')
+        for length in args.length or ():
+            if length not in config['lengths']:
+                reason = config.get('unavailable_lengths', {}).get(str(length), 'No configured RULER profile.')
+                run.error(f'{length} tokens: {reason} Supported lengths: {config["lengths"]}.')
         evaluate(args, config)
 
 

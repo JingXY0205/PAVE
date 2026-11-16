@@ -61,5 +61,11 @@
     "buffer_cluster_num": 32,
     "use_cuda_graph": false,
     "gpu_only": false
+  },
+  "unavailable_lengths": {
+    "4096": "The archived fixed-NTK Llama-2 pilot defines only 8K and 16K.",
+    "32768": "The archived fixed-NTK Llama-2 pilot defines only 8K and 16K.",
+    "65536": "The archived fixed-NTK Llama-2 pilot defines only 8K and 16K.",
+    "131072": "The archived fixed-NTK Llama-2 pilot defines only 8K and 16K."
   }
 }

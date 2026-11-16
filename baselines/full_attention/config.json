@@ -19,13 +19,27 @@
   "attention_implementation": "flash_attention_2",
   "context_policy": {
     "4096": "Native context with original RoPE",
-    "8192": "Explicit extrapolation control with unscaled original RoPE"
+    "8192": "Explicit extrapolation control with unscaled original RoPE",
+    "16384": "Explicit extrapolation control with unscaled original RoPE",
+    "32768": "Explicit extrapolation control with unscaled original RoPE",
+    "65536": "Explicit extrapolation control with unscaled original RoPE"
   },
   "lengths": [
     4096,
-    8192
+    8192,
+    16384,
+    32768,
+    65536
   ],
   "default_lengths": [
     4096
-  ]
+  ],
+  "unavailable_lengths": {
+    "131072": "Native unscaled RoPE extrapolation hit CUDA OOM in the archived 128K resource run. A compatible memory backend or larger GPU is needed."
+  },
+  "length_notes": {
+    "16384": "Unscaled original RoPE extrapolation based on the archived resource control. RULER quality is unverified at this length.",
+    "32768": "Unscaled original RoPE extrapolation based on the archived resource control. RULER quality is unverified at this length.",
+    "65536": "Unscaled original RoPE extrapolation based on the archived resource control. RULER quality is unverified at this length."
+  }
 }

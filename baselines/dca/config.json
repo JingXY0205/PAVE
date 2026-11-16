@@ -26,14 +26,23 @@
     "local_window_size": 512
   },
   "lengths": [
+    4096,
     8192,
     16384,
     32768,
-    65536
+    65536,
+    131072
   ],
   "default_lengths": [
     8192,
     16384,
     32768
-  ]
+  ],
+  "length_notes": {
+    "4096": "Archived ChunkLlama native-window RULER setup.",
+    "131072": "Archived CPU storage for layers 24-31 with final-position vocabulary projection. Historical RULER used a mixed sample count across tasks."
+  },
+  "cpu_kv_from_layer": {
+    "131072": 24
+  }
 }

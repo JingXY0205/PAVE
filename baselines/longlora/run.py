@@ -106,7 +106,8 @@ def load_generator(args, config):
 
     model.lm_head.register_forward_pre_hook(last_position_only)
 
-    def generate(input_ids, max_tokens):
+    def generate(input_ids, max_tokens, length):
+        rotary_budget = max(config['training_context_length'], length)
         for layer in model.model.layers:
             rotary = LlamaLinearScalingRotaryEmbedding(
                 model_config.hidden_size // model_config.num_attention_heads,
@@ -114,7 +115,7 @@ def load_generator(args, config):
                 base=config['rope_theta'], scaling_factor=config['rope_scaling']['factor'],
                 device=input_ids.device,
             )
-            rotary._set_cos_sin_cache(config['training_context_length'], input_ids.device, torch.float32)
+            rotary._set_cos_sin_cache(rotary_budget, input_ids.device, torch.float32)
             layer.self_attn.rotary_emb = rotary
         return generate_dense(model, input_ids, max_tokens)
 
@@ -202,7 +203,7 @@ def evaluate(args, config):
             ids = sample.pop('ids')
             if ids[0] != 1 or ids.count(1) != 1:
                 raise ValueError(f"Expected one initial BOS for {sample['key']}")
-            token_ids = generate(torch.tensor([ids], device=device), sample['cap'])
+            token_ids = generate(torch.tensor([ids], device=device), sample['cap'], sample['length'])
             row = dict(sample, input_tokens=len(ids), output_tokens=len(token_ids),
                        prediction=tokenizer.decode(token_ids, skip_special_tokens=True))
             stream.write(json.dumps(row, ensure_ascii=False) + '\n')
@@ -227,8 +228,9 @@ def main():
     run.add_argument('--model-path', type=Path, required=True)
     run.add_argument('--data-dir', type=Path, required=True, help='Prepared RULER llama2 directory')
     run.add_argument('--output-dir', type=Path, required=True, help='New directory for predictions and scores')
-    run.add_argument('--length', action='append', type=int, choices=config['lengths'],
-                     help=f"Repeat for multiple lengths. Default: {config['default_lengths']}")
+    run.add_argument('--length', '--lengths', dest='length', action='extend', nargs='+', type=int,
+                     metavar='TOKENS',
+                     help=f"Specify one or more lengths. Supported: {config['lengths']}. Default: {config['default_lengths']}")
     run.add_argument('--samples', type=int, default=SAMPLES_PER_TASK,
                      help='Exact prompt count per task. Default: %(default)s')
     run.add_argument('--device', default='cuda')
@@ -238,6 +240,10 @@ def main():
     else:
         if args.samples < 1:
             run.error('--samples must be positive')
+        for length in args.length or ():
+            if length not in config['lengths']:
+                reason = config.get('unavailable_lengths', {}).get(str(length), 'No configured RULER profile.')
+                run.error(f'{length} tokens: {reason} Supported lengths: {config["lengths"]}.')
         evaluate(args, config)
 
 

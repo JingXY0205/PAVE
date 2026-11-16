@@ -27,11 +27,17 @@
     4096,
     8192,
     16384,
-    32768
+    32768,
+    65536,
+    131072
   ],
   "default_lengths": [
     8192,
     16384,
     32768
-  ]
+  ],
+  "length_notes": {
+    "65536": "Archived official 32K Full FT checkpoint. RoPE factor remains 8 and tables are built to the requested length.",
+    "131072": "Same archived Full FT extrapolation configuration as 64K. The archived 128K evaluation was cancelled before completion."
+  }
 }
