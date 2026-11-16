@@ -1,0 +1,60 @@
+{
+  "name": "SelfExtend (Llama-2-7B Base)",
+  "transformers_version": "4.38.2",
+  "model": {
+    "repository": "unsloth/llama-2-7b",
+    "revision": "93d41f48d9d232fd17620e20fc7d22b03cfdc83c",
+    "use_safetensors": true,
+    "weight_files": [
+      "model-*.safetensors"
+    ],
+    "vocab_size": 32000,
+    "sha256": {
+      "model-00001-of-00003.safetensors": "6f7bf3db7d7a78e921b68973dc39d9a08df6cae71c3273750dcb60fb9192f68a",
+      "model-00002-of-00003.safetensors": "7cee8cf83361acfd75e732be678c7e3d2b1134994c9de3e7919d61003e487fe3",
+      "model-00003-of-00003.safetensors": "7aa9a887731fb9044d3d7c597144272319da5f43fb432ff35410c77cb3d05471",
+      "tokenizer.json": "bf467c9e0f536bda271283c6ef85eb1a943e3196b621c8a912d64953b205df83"
+    },
+    "expected_config": {
+      "model_type": "llama",
+      "num_hidden_layers": 32,
+      "max_position_embeddings": 4096,
+      "rope_scaling": null,
+      "vocab_size": 32000
+    }
+  },
+  "source": {
+    "repository": "https://github.com/datamllab/LongLM.git",
+    "revision": "cdbbb061dc76438c46d7e1ddc500f8e4bf255574"
+  },
+  "lengths": [
+    4096,
+    8192,
+    16384,
+    32768,
+    65536,
+    131072
+  ],
+  "default_lengths": [
+    4096,
+    8192
+  ],
+  "dependencies": [
+    "torch==2.8.0",
+    "flash-attn==2.8.3",
+    "accelerate"
+  ],
+  "attention": {
+    "neighbor_window": 1024,
+    "scale_base": -1,
+    "pretraining_length": 4096,
+    "group_sizes": {
+      "4096": 1,
+      "8192": 4,
+      "16384": 8,
+      "32768": 16,
+      "65536": 32,
+      "131072": 64
+    }
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "name": "Landmark Attention (LCEG-512, Llama-2-7B)",
+  "transformers_version": "4.35.2",
+  "model": {
+    "repository": "Leooyii/Landmark_512_Slimpajama_1B",
+    "revision": "1767d2a8b2b8eb257a5e9e08b57af8d59cc9ac12",
+    "use_safetensors": false,
+    "weight_files": [
+      "pytorch_model-*.bin"
+    ],
+    "sha256": {
+      "pytorch_model-00001-of-00002.bin": "210c2f0512b82ce591786ff1caac93c42c34f371e557cf757271b48d1d7e7f84",
+      "pytorch_model-00002-of-00002.bin": "6a69b9c0b7907c0beed5f570445810d73caab204e3473685bce2658b3dc4224a",
+      "tokenizer.model": "9e556afd44213b6bd1be2b850ebbbd98f5481437a8021afaf58ee7fb1818d347"
+    },
+    "expected_config": {
+      "model_type": "llama_with_landmark",
+      "num_hidden_layers": 32,
+      "max_position_embeddings": 4096,
+      "rope_scaling": null,
+      "vocab_size": 32002,
+      "mem_freq": 63,
+      "mem_id": 32001,
+      "train_context_length": 512
+    }
+  },
+  "source": {
+    "repository": "https://github.com/Leooyii/LCEG.git",
+    "revision": "90c589ddaefd3e83414458fd4a23366467361d1e"
+  },
+  "lengths": [
+    4096,
+    8192,
+    16384,
+    32768,
+    65536
+  ],
+  "default_lengths": [
+    4096,
+    8192
+  ],
+  "dependencies": [
+    "torch==2.8.0",
+    "triton",
+    "sentencepiece"
+  ],
+  "attention": {
+    "mem_freq": 63,
+    "mem_id": 32001,
+    "cache_top_k": 5,
+    "internal_chunk_length": 128,
+    "use_flash": false,
+    "offload_cache_to_cpu": false
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "name": "YaRN-32K (LCEG, Llama-2-7B)",
+  "transformers_version": "4.37.2",
+  "model": {
+    "repository": "Leooyii/YaRN_32k_Slimpajama_1B",
+    "revision": "0da815a0e16787e66f8bd981ce5cccf6bf446a52",
+    "use_safetensors": true,
+    "weight_files": [
+      "model-*.safetensors"
+    ],
+    "sha256": {
+      "model-00001-of-00003.safetensors": "f7350be6e238c59c6b0dbbfa731883dfed36c1b3ee25f0fcc6ad1d781626eeab",
+      "model-00002-of-00003.safetensors": "86bd5a64e3f17a98b645425509a623c06cb21c46e54c5de622cc03773484020d",
+      "model-00003-of-00003.safetensors": "948ee88df6fa892eb1a34b0e0a1ac8cd80280edcf41d2c7578f9d11fc201cb27",
+      "model.safetensors.index.json": "250ea47dcfad1402309b26df90a9018cb6188b7413430ade5f8917328ec728ba"
+    },
+    "expected_config": {
+      "model_type": "llama",
+      "num_hidden_layers": 32,
+      "max_position_embeddings": 65536,
+      "rope_scaling": {
+        "factor": 8.0,
+        "original_max_position_embeddings": 4096,
+        "type": "yarn"
+      },
+      "vocab_size": 32001
+    }
+  },
+  "source": {
+    "repository": "https://github.com/Leooyii/LCEG.git",
+    "revision": "90c589ddaefd3e83414458fd4a23366467361d1e"
+  },
+  "lengths": [
+    4096,
+    8192,
+    16384,
+    32768,
+    65536,
+    131072
+  ],
+  "default_lengths": [
+    8192,
+    16384,
+    32768
+  ],
+  "dependencies": [
+    "torch==2.8.0",
+    "flash-attn==2.8.3",
+    "accelerate"
+  ],
+  "tokenizer": {
+    "repository": "unsloth/llama-2-7b",
+    "revision": "93d41f48d9d232fd17620e20fc7d22b03cfdc83c",
+    "sha256": "bf467c9e0f536bda271283c6ef85eb1a943e3196b621c8a912d64953b205df83"
+  },
+  "rope_theta": 10000,
+  "training_context_length": 32768
+}

@@ -1,0 +1,65 @@
+{
+  "name": "RetroInfer + fixed-per-request NTK (Llama-2-7B Base pilot)",
+  "transformers_version": "4.49.0",
+  "model": {
+    "repository": "unsloth/llama-2-7b",
+    "revision": "93d41f48d9d232fd17620e20fc7d22b03cfdc83c",
+    "use_safetensors": true,
+    "weight_files": [
+      "model-*.safetensors"
+    ],
+    "vocab_size": 32000,
+    "sha256": {
+      "model-00001-of-00003.safetensors": "6f7bf3db7d7a78e921b68973dc39d9a08df6cae71c3273750dcb60fb9192f68a",
+      "model-00002-of-00003.safetensors": "7cee8cf83361acfd75e732be678c7e3d2b1134994c9de3e7919d61003e487fe3",
+      "model-00003-of-00003.safetensors": "7aa9a887731fb9044d3d7c597144272319da5f43fb432ff35410c77cb3d05471",
+      "tokenizer.json": "bf467c9e0f536bda271283c6ef85eb1a943e3196b621c8a912d64953b205df83"
+    },
+    "expected_config": {
+      "model_type": "llama",
+      "num_hidden_layers": 32,
+      "max_position_embeddings": 4096,
+      "rope_scaling": null,
+      "vocab_size": 32000
+    }
+  },
+  "source": {
+    "repository": "https://github.com/microsoft/RetrievalAttention.git",
+    "revision": "03f912c6e917c380d9d90c5ec85bb0f161ba53ef"
+  },
+  "lengths": [
+    8192,
+    16384
+  ],
+  "default_lengths": [
+    8192,
+    16384
+  ],
+  "dependencies": [
+    "torch==2.5.1 (CUDA 12.4)",
+    "flash-attn==2.7.3",
+    "flashinfer-python==0.2.4",
+    "RetroInfer CUDA extension",
+    "weighted FlashAttention decoding extension",
+    "CUTLASS v3.8.0 (build)"
+  ],
+  "rope": {
+    "type": "dynamic_ntk",
+    "factor": 2.0,
+    "native_context": 4096,
+    "theta": 10000,
+    "frequency_policy": "Freeze at the actual prefill length for each request"
+  },
+  "attention": {
+    "static_pattern_start": 4,
+    "static_pattern_end": 64,
+    "core": 4,
+    "pages_per_cluster": 2,
+    "retrieval_budget": 0.018,
+    "estimation_budget": 0.232,
+    "cache_ratio": 0.05,
+    "buffer_cluster_num": 32,
+    "use_cuda_graph": false,
+    "gpu_only": false
+  }
+}
