@@ -23,13 +23,10 @@ DEFAULT_REVISION = "96ced71b37196dad7ddea9bd7799424fa09c9a13"
 DEFAULT_SUBSET_DIR = "redpajama-arxiv"
 DEFAULT_SPLIT = "validation"
 DEFAULT_EXPECTED_SHARDS = 100
-DEFAULT_OUTPUT_NAME = "proof_pile_arxiv.validation.bin"
 DEFAULT_DTYPE = "auto"
 
 
 def parse_args() -> argparse.Namespace:
-    script_dir = Path(__file__).resolve().parent
-    project_root = script_dir.parent.parent
 
     parser = argparse.ArgumentParser(
         description=(
@@ -40,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model-path",
         type=Path,
-        default=project_root / "models" / "Llama-2-7b-hf",
+        required=True,
         help="Path to the local Hugging Face model/tokenizer directory.",
     )
     parser.add_argument(
@@ -66,7 +63,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-path",
         type=Path,
-        default=script_dir / DEFAULT_OUTPUT_NAME,
+        required=True,
     )
     parser.add_argument(
         "--manifest-path",
@@ -160,14 +157,14 @@ def resolve_target_dtype(
 
     if dtype_arg == "auto":
         target_dtype = (
-            np.dtype(np.uint16)
+            np.dtype("<u2")
             if max_token_id <= np.iinfo(np.uint16).max
-            else np.dtype(np.uint32)
+            else np.dtype("<u4")
         )
     elif dtype_arg == "uint16":
-        target_dtype = np.dtype(np.uint16)
+        target_dtype = np.dtype("<u2")
     elif dtype_arg == "uint32":
-        target_dtype = np.dtype(np.uint32)
+        target_dtype = np.dtype("<u4")
     else:
         raise ValueError(f"Unsupported dtype: {dtype_arg}")
 
@@ -419,6 +416,8 @@ def main() -> None:
         "documents_skipped": skipped_documents,
         "tokens_written": total_tokens,
         "dtype": target_dtype.name,
+        "byte_order": "little",
+        "bos_token_id": tokenizer.bos_token_id,
         "output_file": output_path.name,
         "output_bytes": actual_bytes,
         "sha256": hasher.hexdigest(),

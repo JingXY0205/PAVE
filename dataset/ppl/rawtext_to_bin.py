@@ -20,7 +20,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model",
         type=str,
-        default="llama3",
+        choices=("llama2", "llama3", "mistral"),
+        required=True,
         help="Model tag used in the default output filename (e.g., llama2, llama3, mistral).",
     )
     parser.add_argument(
@@ -32,7 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input-path",
         type=Path,
-        default=Path("pg19_raw.txt"),
+        default=Path(__file__).with_name("pg19_raw.txt"),
         help="Path to the raw PG19 text file (default: pg19_raw.txt).",
     )
     parser.add_argument(
@@ -61,14 +62,14 @@ def parse_args() -> argparse.Namespace:
 def resolve_dtype(dtype_arg: str, max_id: int) -> np.dtype:
     if dtype_arg == "auto":
         target_dtype = (
-            np.dtype(np.uint16)
+            np.dtype("<u2")
             if max_id <= np.iinfo(np.uint16).max
-            else np.dtype(np.uint32)
+            else np.dtype("<u4")
         )
     elif dtype_arg == "uint16":
-        target_dtype = np.dtype(np.uint16)
+        target_dtype = np.dtype("<u2")
     else:
-        target_dtype = np.dtype(np.uint32)
+        target_dtype = np.dtype("<u4")
 
     if max_id > int(np.iinfo(target_dtype).max):
         raise ValueError(
@@ -99,6 +100,10 @@ def main() -> None:
         str(model_path),
         local_files_only=True,
     )
+
+    expected_bos = {"llama2": 1, "llama3": 128000}.get(args.model)
+    if expected_bos is not None and tokenizer.bos_token_id != expected_bos:
+        raise ValueError(f"Tokenizer BOS does not match {args.model}")
 
     print(f"[Input] Reading {input_path}")
     content = input_path.read_text(encoding="utf-8")
@@ -178,6 +183,8 @@ def main() -> None:
         "min_token_id": min_id,
         "max_token_id": max_id,
         "dtype": target_dtype.name,
+        "byte_order": "little",
+        "bos_token_id": tokenizer.bos_token_id,
         "output_file": output_path.name,
         "output_bytes": actual_bytes,
         "sha256": sha256,
