@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.ckpt
+*.log
+/data/
+/models/
+/checkpoints/
+/runs/

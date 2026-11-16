@@ -1,0 +1,5 @@
+transformers==4.37.2
+triton==3.4.0
+flash-attn==2.8.3
+sentencepiece
+protobuf
