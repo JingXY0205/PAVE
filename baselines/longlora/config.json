@@ -1,0 +1,37 @@
+{
+  "name": "LongLoRA 32K (official Full FT)",
+  "transformers_version": "4.37.2",
+  "model": {
+    "repository": "Yukang/Llama-2-7b-longlora-32k-ft",
+    "revision": "ab48674ffc55568ffe2a1207ef0e711c2febbaaf",
+    "use_safetensors": false,
+    "weight_files": [
+      "pytorch_model-*.bin"
+    ],
+    "vocab_size": 32001,
+    "sha256": {
+      "pytorch_model-00001-of-00002.bin": "3d0afee69d1166efba9c8ef90e486af9211e62a7fbfec9c348eaa959cf61795b",
+      "pytorch_model-00002-of-00002.bin": "1bda66a87b84da3382a309d575c596738ca1c0fbd1f8b204f4925785694384f3",
+      "pytorch_model.bin.index.json": "2e54729ec2da172881345ee8c2cc7da607561c76d5520a867bc12dfc1559dcb4",
+      "tokenizer.model": "9e556afd44213b6bd1be2b850ebbbd98f5481437a8021afaf58ee7fb1818d347"
+    }
+  },
+  "attention_implementation": "flash_attention_2",
+  "training_context_length": 32768,
+  "rope_theta": 10000.0,
+  "rope_scaling": {
+    "type": "linear",
+    "factor": 8.0
+  },
+  "lengths": [
+    4096,
+    8192,
+    16384,
+    32768
+  ],
+  "default_lengths": [
+    8192,
+    16384,
+    32768
+  ]
+}
