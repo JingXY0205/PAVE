@@ -103,7 +103,9 @@ bash run.sh train --config training/configs/llama3_8b.json \
 
 ## Evaluate PAVE
 
-The public PAVE runners below use a local Llama-2 snapshot and the archived PAVE checkpoint. The full RULER runner covers 8K, 16K, and 32K. To use a newly trained Llama-2 checkpoint for RULER, set `PAVE_PT` to its `best.pt` and add `--allow-different-checkpoint`.
+### Llama-2
+
+Use a local Llama-2 snapshot and the archived PAVE checkpoint. The full RULER runner covers 8K, 16K, and 32K. To use a newly trained Llama-2 checkpoint for RULER, set `PAVE_PT` to its `best.pt` and add `--allow-different-checkpoint`.
 
 ```bash
 PAVE_PT=/absolute/path/to/pave-llama2.pt
@@ -120,6 +122,29 @@ bash run.sh ablation --model-path "$LLAMA2" --checkpoint "$PAVE_PT" \
 ```
 
 For L-Eval scoring, add `--scorer /absolute/path/to/auto_eval.py`. For ArXiv PPL, use `data/ppl/arxiv.bin` and `--dataset arxiv`. The 64K RULER ablation requires prompts generated with `--length 65536`. The `design-choice` and `hyper` commands use the archived 32K JSONL windows.
+
+### Llama-3
+
+Use the original Llama-3-8B Base snapshot and a matching local PAVE checkpoint. RULER defaults to 8K, 16K, 32K, 64K, and 128K with 500 prompts per task. Repeat `--length` to select a subset or pass `--validate-only` to check the inputs before inference.
+
+```bash
+PAVE_LLAMA3_PT=/absolute/path/to/pave-llama3.pt
+
+PYTHON="$DATA_PYTHON" bash run.sh prepare-ruler --backbone llama3 \
+  --ruler-root data/RULER --tokenizer "$LLAMA3" --output-dir data/ruler \
+  --length 8192 --length 16384 --length 32768 --length 65536 --length 131072
+bash run.sh ruler --backbone llama3 --model-path "$LLAMA3" --checkpoint "$PAVE_LLAMA3_PT" \
+  --tokenizer-python "$DATA_PYTHON" --data-dir data/ruler/llama3 --output-dir runs/ruler-llama3
+
+PYTHON="$DATA_PYTHON" bash run.sh prepare-pg19 --model llama3 \
+  --model-path "$LLAMA3" --output-path data/ppl/pg19_llama3.bin
+bash run.sh ppl --backbone llama3 --model-path "$LLAMA3" --checkpoint "$PAVE_LLAMA3_PT" \
+  --inputs data/ppl/pg19_llama3.bin --dataset pg19 \
+  --length 8192 --length 16384 --length 32768 --length 65536 --length 100000 \
+  --stride 100000 --max-windows 10 --output-dir runs/ppl-pg19-llama3
+```
+
+The PG-19 command shows a windowing example. For existing JSONL windows, use the original Llama-3 tokenizer and omit the binary-stream options.
 
 ## Run Baselines
 

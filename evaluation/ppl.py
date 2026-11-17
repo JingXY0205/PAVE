@@ -1,11 +1,11 @@
-"""Score default PAVE perplexity on prepared PG-19 and ArXiv token windows."""
+"""Score PAVE perplexity on PG-19 and Llama-2 Proof-Pile-ArXiv windows."""
 from collections import defaultdict
 from itertools import chain
 import json
 from pathlib import Path
 
-from pave.inference import load
-from .checks import read_json, verify_backbone, verify_sha256, write_json
+from pave.inference import LLAMA3_BOS, load
+from .checks import read_json, verify_backbone, verify_llama3_backbone, verify_sha256, write_json
 from .hyper import evaluate_window, ppl_arguments, summarize_windows
 from .ruler import FULL_PROTOCOL
 
@@ -29,6 +29,12 @@ def binary_windows(args):
     expected_hash = manifest.get('sha256')
     if expected_hash:
         verify_sha256(args.inputs, expected_hash)
+    if args.backbone == 'llama3' and (
+        manifest.get('bos_token_id') != LLAMA3_BOS
+        or manifest.get('model_tag', 'llama3') != 'llama3'
+        or str(manifest.get('dataset', '')).lower().replace('-', '') != 'pg19'
+    ):
+        raise ValueError('Expected a PG-19 token-stream manifest for the Llama-3 tokenizer')
     if manifest.get('bos_token_id') is not None:
         backbone_bos = read_json(args.model_path / 'config.json').get('bos_token_id')
         if backbone_bos is not None and manifest['bos_token_id'] != backbone_bos:
@@ -44,14 +50,14 @@ def binary_windows(args):
                        target_start=args.target_start or 1), length
 
 
-def jsonl_windows(path, lengths):
+def jsonl_windows(path, lengths, datasets=DATASETS):
     with path.open(encoding='utf-8') as source:
         for line in source:
             if not line.strip():
                 continue
             row = json.loads(line)
             size = len(row['input_ids'])
-            if row['dataset'] not in DATASETS:
+            if row['dataset'] not in datasets:
                 raise ValueError(f"Unsupported PPL dataset {row['dataset']}")
             for length in lengths or [size]:
                 if not 1 <= row['target_start'] < length <= size:
@@ -61,6 +67,8 @@ def jsonl_windows(path, lengths):
 
 def main():
     parser = ppl_arguments(__doc__, input_help='PG-19 or ArXiv token stream (.bin) or prepared windows (JSONL)')
+    parser.add_argument('--backbone', choices=('llama2', 'llama3'), default='llama2',
+                        help='Llama-3 evaluation supports PG-19')
     parser.add_argument('--length', type=int, action='append',
                         help='Window size for .bin input or scored prefix length for JSONL. May be repeated.')
     parser.add_argument('--dataset', choices=DATASETS, help='Dataset name for .bin input')
@@ -69,10 +77,13 @@ def main():
     parser.add_argument('--target-start', type=int, help='First token to score in each .bin window (default: 1)')
     parser.add_argument('--max-windows', type=int, help='Maximum .bin windows per requested length')
     args = parser.parse_args()
+    datasets = ('pg19',) if args.backbone == 'llama3' else DATASETS
     binary = args.inputs.suffix.lower() == '.bin'
     if binary:
         if args.dataset is None or not args.length or args.stride is None:
             parser.error('.bin input requires --dataset, --length and --stride')
+        if args.dataset not in datasets:
+            parser.error('--backbone llama3 supports only PG-19')
         start = 1 if args.target_start is None else args.target_start
         if not 1 <= start < min(args.length) or args.stride < 1:
             parser.error('Require 1 <= target-start < length and a positive stride')
@@ -83,13 +94,16 @@ def main():
         if any(getattr(args, name) is not None
                for name in ('dataset', 'manifest', 'stride', 'target_start', 'max_windows')):
             parser.error('Binary window options require a .bin input')
-        windows = jsonl_windows(args.inputs, args.length)
+        windows = jsonl_windows(args.inputs, args.length, datasets)
     first = next(windows, None)
     if first is None:
         parser.error('No PPL windows supplied')
 
-    verify_backbone(args.model_path, FULL_PROTOCOL['model_weight_sha256'])
-    verify_sha256(args.checkpoint, FULL_PROTOCOL['checkpoint_sha256'])
+    if args.backbone == 'llama3':
+        verify_llama3_backbone(args.model_path)
+    else:
+        verify_backbone(args.model_path, FULL_PROTOCOL['model_weight_sha256'])
+        verify_sha256(args.checkpoint, FULL_PROTOCOL['checkpoint_sha256'])
     args.output_dir.mkdir(parents=True, exist_ok=False)
 
     import torch
@@ -97,7 +111,7 @@ def main():
     torch.manual_seed(42)
     torch.set_num_threads(8)
     torch.backends.cuda.matmul.allow_tf32 = False
-    model, core, _, _ = load(args.model_path, args.checkpoint, decode=False)
+    model, core, _, _ = load(args.model_path, args.checkpoint, decode=False, backbone=args.backbone)
     grouped = defaultdict(list)
     with (args.output_dir / 'windows.jsonl').open('w', encoding='utf-8') as output:
         for row, length in chain((first,), windows):

@@ -1,4 +1,4 @@
-"""PAVE routing, chunk summaries, and DCA-based Llama-2 attention.
+"""PAVE routing, chunk summaries, and DCA-based Llama attention.
 
 DCA position handling and attention are adapted from HKUNLP/ChunkLlama,
 Apache-2.0, commit 2add4d7c99d24dcc1ab03414cc602abb2e28cf2c.
@@ -1065,11 +1065,16 @@ def install_sparse_decode(model, sparse=True):
         concentration=None
         if p.remote:
             reps=layer['reps'][:,:,p.sink:p.sink+p.remote]
-            pos=torch.zeros((1,prior.shape[-2]),device=k.device,dtype=torch.long)
             rotary=attn.rotary_emb
             cos=rotary.qc_cos_cached[...,chunk-1:chunk,:].to(k.dtype)
             sin=rotary.qc_sin_cached[...,chunk-1:chunk,:].to(k.dtype)
-            selection=apply_rotary_pos_emb(prior,cos,sin,pos)
+            if attn.num_key_value_groups > 1:
+                # The single DCA row broadcasts across the GQA query window.
+                # Applying the legacy squeeze here would drop the position axis.
+                selection=prior*cos+rotate_half(prior)*sin
+            else:
+                pos=torch.zeros((1,prior.shape[-2]),device=k.device,dtype=torch.long)
+                selection=apply_rotary_pos_emb(prior,cos,sin,pos)
             probe=selection.mean(-2)
             scores=((probe.unsqueeze(2)@reps.transpose(-1,-2)).squeeze(2)/math.sqrt(dim)).mean(1)
             concentration=compute_attention_concentration(scores)

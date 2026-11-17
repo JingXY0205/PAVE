@@ -1,6 +1,13 @@
-"""Load the PAVE inference modules on Llama-2-7B Base."""
+"""Load PAVE inference modules on Llama-2-7B and Llama-3-8B Base."""
 from dataclasses import fields
+import hashlib
 from pathlib import Path
+
+
+LLAMA3_MODEL_ID = 'meta-llama/Meta-Llama-3-8B'
+LLAMA3_BOS = 128000
+LLAMA3_EOS = 128001
+LLAMA3_DCA = {'pretraining_length': 8192, 'local_window_size': 1024}
 
 
 def checkpoint_config(payload, config_class):
@@ -16,16 +23,42 @@ def checkpoint_config(payload, config_class):
     return config_class(**candidates[0])
 
 
-def load(model_path, checkpoint_path, *, routing_interval=512, intervention=None, decode=True):
+def verify_llama3_checkpoint(payload, model_path):
+    if payload.get('backbone') == LLAMA3_MODEL_ID:
+        if payload.get('dca') != LLAMA3_DCA:
+            raise ValueError('Expected the Llama-3 DCA settings saved by the PAVE trainer')
+        return
+    # Older Llama-3 checkpoints identify their local backbone by file digests.
+    identity = payload.get('backbone_identity', {})
+    if identity.get('architecture', {}).get('num_key_value_heads') != 8:
+        raise ValueError('Expected a Llama-3 PAVE checkpoint with backbone metadata')
+    for filename, key in (('config.json', 'config_sha256'), ('tokenizer.json', 'tokenizer_sha256')):
+        digest = hashlib.sha256((Path(model_path) / filename).read_bytes()).hexdigest()
+        if identity.get(key) != digest:
+            raise ValueError(f'Llama-3 checkpoint was recorded with a different {filename}')
+
+
+def load(model_path, checkpoint_path, *, routing_interval=None, intervention=None, decode=True,
+         backbone='llama2'):
     import torch
     from transformers import LlamaForCausalLM
 
     from . import model as core
 
     payload = torch.load(Path(checkpoint_path), map_location='cpu', weights_only=True)
+    if backbone == 'llama3':
+        verify_llama3_checkpoint(payload, model_path)
+        dca = LLAMA3_DCA
+    elif backbone == 'llama2':
+        dca = {}
+        if routing_interval is None:
+            routing_interval = 512
+    else:
+        raise ValueError(f'Unsupported PAVE backbone: {backbone}')
     config = checkpoint_config(payload, core.PAVEConfig)
-    config.routing_interval = routing_interval
-    core.replace_with_chunkllama()
+    if routing_interval is not None:
+        config.routing_interval = routing_interval
+    core.replace_with_chunkllama(**dca)
     model = LlamaForCausalLM.from_pretrained(
         model_path, torch_dtype=torch.bfloat16, attn_implementation='flash_attention_2',
         local_files_only=True,
@@ -38,7 +71,8 @@ def load(model_path, checkpoint_path, *, routing_interval=512, intervention=None
     model.requires_grad_(False)
     if intervention:
         intervention(model, core, config)
-    core.install_indexed_prefill()
+    if backbone == 'llama2' or config.routing_interval in (128, 512):
+        core.install_indexed_prefill()
     reset_decode = core.install_sparse_decode(model, sparse=True) if decode else None
     return model, core, config, reset_decode
 
