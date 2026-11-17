@@ -6,7 +6,13 @@ This repository accompanies the ICDE 2027 submission **PAVE: Adaptive Historical
 
 ![PAVE framework with adaptive boundary routing, semantic-aware chunk summarization, and layer-adaptive sparsity](framework.jpg)
 
-PAVE partitions historical key-value chunks into Anchor, Remote, and Recent regions. It builds salience-weighted summaries for query-aware Remote retrieval and adapts the number of retained Remote chunks across layers.
+PAVE organizes historical key-value (KV) states into chunks and adapts how they are accessed at three levels.
+
+- **Inter-chunk.** A learned boundary router uses layer identity, history length, and query content to partition the history into directly accessed **Anchor** and **Recent** regions and a **Remote** candidate region.
+- **Intra-chunk.** A semantic-aware summarizer learns token-level salience weights and uses them to pool each Remote chunk's keys into a single vector for relevance scoring.
+- **Inter-layer.** PAVE selects Remote chunks by query relevance and uses the concentration of the relevance scores to update the next layer's Remote retention ratio. More concentrated scores lead to a larger reduction.
+
+Attention uses the original token-level KV states of the directly accessed and selected chunks.
 
 ## Benchmarks
 
