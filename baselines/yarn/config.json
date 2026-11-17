@@ -54,5 +54,201 @@
     "sha256": "bf467c9e0f536bda271283c6ef85eb1a943e3196b621c8a912d64953b205df83"
   },
   "rope_theta": 10000,
-  "training_context_length": 32768
+  "training_context_length": 32768,
+  "llama3": {
+    "name": "YaRN Frozen (Meta-Llama-3-8B Base)",
+    "transformers_version": "4.55.2",
+    "model": {
+      "repository": "meta-llama/Meta-Llama-3-8B",
+      "revision": "8cde5ca8380496c9a6cc7ef3a8b46a0372a1d920",
+      "use_safetensors": true,
+      "weight_files": [
+        "model-*.safetensors"
+      ],
+      "expected_config": {
+        "model_type": "llama",
+        "hidden_size": 4096,
+        "num_hidden_layers": 32,
+        "max_position_embeddings": 8192,
+        "rope_scaling": null,
+        "rope_theta": 500000,
+        "num_attention_heads": 32,
+        "num_key_value_heads": 8,
+        "vocab_size": 128256
+      },
+      "sha256": {
+        "model-00001-of-00004.safetensors": "f2c144103072514542e327fa8080bd375cb300f2d453fba9ca3aea81d0d4cf33",
+        "model-00002-of-00004.safetensors": "d9eee5f23d94405d90b7e9ff88b9443fee42f8528a658f54214c2aba7530d80c",
+        "model-00003-of-00004.safetensors": "4b8fbc5e113f69768dd8de84661ea20af8a32b734a9976144b4236c447b40ccc",
+        "model-00004-of-00004.safetensors": "5dc34e6bdf2da9e35f0d93b5c333c870f3677dc43dc3a91ea3a8ad28a1fe1acb"
+      }
+    },
+    "bos_token_id": 128000,
+    "eos_token_id": 128001,
+    "pad_token_id": 128001,
+    "lengths": [
+      8192,
+      16384,
+      32768,
+      65536,
+      131072
+    ],
+    "default_lengths": [
+      8192,
+      16384,
+      32768,
+      65536,
+      131072
+    ],
+    "unavailable_lengths": {},
+    "source": null,
+    "tokenizer": null,
+    "rope": {
+      "native_context": 8192,
+      "beta_fast": 32.0,
+      "beta_slow": 1.0
+    },
+    "length_notes": "Target-length-adaptive, frozen checkpoint. Static YaRN frequencies within each request.",
+    "adaptation": "training_free"
+  },
+  "adaptation": "fine_tuned_checkpoint",
+  "frozen_llama2": {
+    "name": "YaRN Frozen (Llama-2-7B Base)",
+    "adaptation": "training_free",
+    "model": {
+      "repository": "unsloth/llama-2-7b",
+      "revision": "93d41f48d9d232fd17620e20fc7d22b03cfdc83c",
+      "use_safetensors": true,
+      "weight_files": [
+        "model-*.safetensors"
+      ],
+      "vocab_size": 32000,
+      "sha256": {
+        "model-00001-of-00003.safetensors": "6f7bf3db7d7a78e921b68973dc39d9a08df6cae71c3273750dcb60fb9192f68a",
+        "model-00002-of-00003.safetensors": "7cee8cf83361acfd75e732be678c7e3d2b1134994c9de3e7919d61003e487fe3",
+        "model-00003-of-00003.safetensors": "7aa9a887731fb9044d3d7c597144272319da5f43fb432ff35410c77cb3d05471",
+        "tokenizer.json": "bf467c9e0f536bda271283c6ef85eb1a943e3196b621c8a912d64953b205df83"
+      },
+      "expected_config": {
+        "model_type": "llama",
+        "num_hidden_layers": 32,
+        "max_position_embeddings": 4096,
+        "rope_scaling": null,
+        "vocab_size": 32000
+      }
+    },
+    "transformers_version": "4.55.2",
+    "source": null,
+    "tokenizer": null,
+    "bos_token_id": 1,
+    "eos_token_id": 2,
+    "pad_token_id": 0,
+    "rope": {
+      "native_context": 4096,
+      "beta_fast": 32.0,
+      "beta_slow": 1.0
+    }
+  },
+  "training": {
+    "steps": 90,
+    "warmup_steps": 5,
+    "seed": 42,
+    "max_length": 32768,
+    "max_answer_tokens": 1024,
+    "grad_clip": 5.0,
+    "eval_every": 90,
+    "save_every": 10,
+    "logit_chunk": 16,
+    "weight_decay": 0.0,
+    "optimizer": "AdamW",
+    "schedule": "warmup cosine",
+    "sample_policy": "ascending length buckets, shuffled within each bucket once per epoch",
+    "supervision": "answer tokens through the capped response and explicit EOS; prompt labels masked",
+    "lr": 0.0001,
+    "rank": 8,
+    "alpha": 16,
+    "rope": {
+      "rope_type": "yarn",
+      "factor": 4.0,
+      "beta_fast": 32.0,
+      "beta_slow": 1.0
+    },
+    "transformers_version": "4.55.2",
+    "dataset": {
+      "id": "Yukang/LongAlpaca-12k",
+      "revision": "ce79abba17226d5b20a0ffe2aa04e78e56c71ebb",
+      "split_seed": 42,
+      "length_buckets": [
+        8192,
+        16384,
+        24576,
+        32768
+      ],
+      "min_tokens": 6144,
+      "prompt_tail_max_tokens": 4096,
+      "validation_max_length": 8192
+    }
+  },
+  "llama3_fine_tuned": {
+    "name": "YaRN + LoRA (Llama-3-8B, PAVE training data)",
+    "transformers_version": "4.55.2",
+    "model": {
+      "repository": "meta-llama/Meta-Llama-3-8B",
+      "revision": "8cde5ca8380496c9a6cc7ef3a8b46a0372a1d920",
+      "use_safetensors": true,
+      "weight_files": [
+        "model-*.safetensors"
+      ],
+      "expected_config": {
+        "model_type": "llama",
+        "hidden_size": 4096,
+        "num_hidden_layers": 32,
+        "max_position_embeddings": 8192,
+        "rope_scaling": null,
+        "rope_theta": 500000,
+        "num_attention_heads": 32,
+        "num_key_value_heads": 8,
+        "vocab_size": 128256
+      },
+      "sha256": {
+        "model-00001-of-00004.safetensors": "f2c144103072514542e327fa8080bd375cb300f2d453fba9ca3aea81d0d4cf33",
+        "model-00002-of-00004.safetensors": "d9eee5f23d94405d90b7e9ff88b9443fee42f8528a658f54214c2aba7530d80c",
+        "model-00003-of-00004.safetensors": "4b8fbc5e113f69768dd8de84661ea20af8a32b734a9976144b4236c447b40ccc",
+        "model-00004-of-00004.safetensors": "5dc34e6bdf2da9e35f0d93b5c333c870f3677dc43dc3a91ea3a8ad28a1fe1acb"
+      }
+    },
+    "bos_token_id": 128000,
+    "eos_token_id": 128001,
+    "pad_token_id": 128001,
+    "lengths": [
+      8192,
+      16384,
+      32768,
+      65536,
+      131072
+    ],
+    "default_lengths": [
+      8192,
+      16384,
+      32768
+    ],
+    "unavailable_lengths": {},
+    "separate_tokenizer": false,
+    "context_policy": {
+      "8192": "Native original RoPE",
+      "16384": "Unscaled original RoPE extrapolation (resource control)",
+      "32768": "Unscaled original RoPE extrapolation (resource control)",
+      "65536": "Unscaled original RoPE extrapolation (resource control)",
+      "131072": "Unscaled original RoPE extrapolation (resource control)"
+    },
+    "adaptation": "pave_protocol_fine_tune",
+    "source": null,
+    "tokenizer": null,
+    "rope": {
+      "native_context": 8192,
+      "beta_fast": 32.0,
+      "beta_slow": 1.0,
+      "factor": 4.0
+    }
+  }
 }

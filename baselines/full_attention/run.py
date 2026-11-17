@@ -1,12 +1,15 @@
 """Run native dense attention on Llama-2-7B Base."""
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 from itertools import islice
 import json
 from pathlib import Path
 import re
 from statistics import mean
+import subprocess
+import sys
 
 
 TASK_CAPS = {
@@ -29,14 +32,80 @@ SEED = 42
 RULER_REVISION = 'c3f5e3b4f87f97e048793bb510a3a6b19a46bf3a'
 
 
+TOKENIZER_WORKER = '''
+import json
+import sys
+from transformers import AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(sys.argv[1], local_files_only=True)
+print(json.dumps([tokenizer.bos_token_id, tokenizer.eos_token_id]), flush=True)
+for line in sys.stdin:
+    operation, value = json.loads(line)
+    if operation == 'encode':
+        answer = tokenizer.encode(value, add_special_tokens=False, truncation=False)
+    else:
+        answer = tokenizer.decode(value, skip_special_tokens=True)
+    print(json.dumps(answer), flush=True)
+'''
+
+
+class Llama3Tokenizer:
+    def __init__(self, process):
+        self.process = process
+
+    def read(self):
+        line = self.process.stdout.readline()
+        if not line:
+            raise RuntimeError('Llama-3 tokenizer process stopped. Check its Transformers environment.')
+        return json.loads(line)
+
+    def call(self, operation, value):
+        self.process.stdin.write(json.dumps([operation, value]) + '\n')
+        self.process.stdin.flush()
+        return self.read()
+
+    def __call__(self, prompt, **_kwargs):
+        tokens = self.call('encode', prompt)
+        if not tokens or tokens[0] != 128000:
+            tokens.insert(0, 128000)
+        return {'input_ids': tokens}
+
+    def decode(self, tokens, **_kwargs):
+        return self.call('decode', tokens)
+
+
+@contextmanager
+def llama3_tokenizer(args, config):
+    interpreter = str(args.tokenizer_python or sys.executable)
+    process = subprocess.Popen(
+        [interpreter, '-u', '-c', TOKENIZER_WORKER, str(args.model_path.resolve())],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding='utf-8',
+    )
+    try:
+        tokenizer = Llama3Tokenizer(process)
+        if tokenizer.read() != [config['bos_token_id'], config['eos_token_id']]:
+            raise ValueError('Expected the Meta-Llama-3-8B Base tokenizer')
+        yield tokenizer
+    finally:
+        process.stdin.close()
+        process.stdout.close()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+
 def read_json(path):
     return json.loads(path.read_text(encoding='utf-8'))
 
 
 def verify_model(path, config):
     model = config['model']
-    expected = dict(model_type='llama', num_hidden_layers=32, max_position_embeddings=4096,
-                    rope_scaling=None, vocab_size=model['vocab_size'])
+    expected = model.get('expected_config')
+    if expected is None:
+        expected = dict(model_type='llama', num_hidden_layers=32, max_position_embeddings=4096,
+                        rope_scaling=None, vocab_size=model['vocab_size'])
     checkpoint = read_json(path / 'config.json')
     if any(checkpoint.get(key) != value for key, value in expected.items()):
         raise ValueError(f"Checkpoint configuration does not match {config['name']}")
@@ -77,12 +146,13 @@ def load_model(args, config):
     ).to(args.device).eval()
 
 
-def generate_dense(model, input_ids, max_tokens):
+def generate_dense(model, input_ids, max_tokens, config):
     from transformers import GenerationConfig
     from transformers.cache_utils import DynamicCache
 
     generation = GenerationConfig(do_sample=False, num_beams=1, max_new_tokens=max_tokens,
-                                  bos_token_id=1, eos_token_id=2, pad_token_id=0, use_cache=True)
+                                  bos_token_id=config.get('bos_token_id', 1), eos_token_id=config.get('eos_token_id', 2),
+                                  pad_token_id=config.get('pad_token_id', 0), use_cache=True)
     tokens = model.generate(input_ids=input_ids, attention_mask=input_ids.new_ones(input_ids.shape),
                             generation_config=generation, past_key_values=DynamicCache())
     return tokens[0, input_ids.shape[1]:].tolist()
@@ -98,10 +168,10 @@ def load_generator(args, config):
         return (inputs[0][:, -1:, :], *inputs[1:])
 
     def generate(input_ids, max_tokens, length):
-        if length >= 16384:
+        if config.get('backbone') == 'llama3' or length >= 16384:
             with model.lm_head.register_forward_pre_hook(final_position):
-                return generate_dense(model, input_ids, max_tokens)
-        return generate_dense(model, input_ids, max_tokens)
+                return generate_dense(model, input_ids, max_tokens, config)
+        return generate_dense(model, input_ids, max_tokens, config)
 
     return generate
 
@@ -170,9 +240,17 @@ def evaluate(args, config):
     torch.backends.cuda.matmul.allow_tf32 = False
 
     verify_model(args.model_path, config)
+    if config.get('backbone') == 'llama3':
+        with llama3_tokenizer(args, config) as tokenizer:
+            return evaluate_examples(args, config, torch, device, tokenizer)
+
     tokenizer = AutoTokenizer.from_pretrained(args.model_path, local_files_only=True)
     if (tokenizer.bos_token_id, tokenizer.eos_token_id) != (1, 2):
         raise ValueError('Expected Llama-2 BOS=1 and EOS=2')
+    return evaluate_examples(args, config, torch, device, tokenizer)
+
+
+def evaluate_examples(args, config, torch, device, tokenizer):
 
     protocol = dict(lengths=list(dict.fromkeys(args.length or config['default_lengths'])),
                     samples_per_task=args.samples)
@@ -185,7 +263,8 @@ def evaluate(args, config):
     with predictions.open('x', encoding='utf-8') as stream, torch.inference_mode():
         for sample in iter_inputs(args.data_dir, protocol, tokenizer):
             ids = sample.pop('ids')
-            if ids[0] != 1 or ids.count(1) != 1:
+            bos = config.get('bos_token_id', 1)
+            if ids[0] != bos or ids.count(bos) != 1:
                 raise ValueError(f"Expected one initial BOS for {sample['key']}")
             token_ids = generate(torch.tensor([ids], device=device), sample['cap'], sample['length'])
             row = dict(sample, input_tokens=len(ids), output_tokens=len(token_ids),
@@ -209,19 +288,35 @@ def main():
     fetch = commands.add_parser('download', help='Fetch official artifacts to user-selected directories')
     fetch.add_argument('--model-output', type=Path, required=True)
     run = commands.add_parser('evaluate', help='Run RULER with a local model and prepared prompts')
+    for command in (fetch, run):
+        command.add_argument('--backbone', choices=('llama2', 'llama3'), default='llama2')
+    run.add_argument('--tokenizer-python', type=Path,
+                     help='Python executable in the Llama-3 tokenizer environment')
     run.add_argument('--model-path', type=Path, required=True)
-    run.add_argument('--data-dir', type=Path, required=True, help='Prepared RULER llama2 directory')
+    run.add_argument('--data-dir', type=Path, required=True, help='Prepared RULER directory for the selected backbone')
     run.add_argument('--output-dir', type=Path, required=True, help='New directory for predictions and scores')
     run.add_argument('--length', '--lengths', dest='length', action='extend', nargs='+', type=int,
                      metavar='TOKENS',
-                     help=f"Specify one or more lengths. Supported: {config['lengths']}. Default: {config['default_lengths']}")
+                     help='Specify one or more token budgets for the selected backbone.')
     run.add_argument('--samples', type=int, default=SAMPLES_PER_TASK,
                      help='Exact prompt count per task. Default: %(default)s')
     run.add_argument('--device', default='cuda')
+    llama3 = config['llama3']
+    run.epilog = (f"Llama-2 lengths: {config['lengths']}. "
+                  + (f"Llama-3 lengths: {llama3['lengths']} (Transformers {llama3['transformers_version']})."
+                     if llama3['lengths'] else 'A Llama-3 profile is unavailable.'))
     args = parser.parse_args()
+    if args.backbone == 'llama3':
+        overrides = config['llama3']
+        config = dict(config, **overrides, backbone='llama3')
+        if not config['lengths']:
+            run.error(next(iter(config['unavailable_lengths'].values())))
+    config.pop('llama3')
     if args.command == 'download':
         download(args, config)
     else:
+        if config.get('separate_tokenizer') and args.tokenizer_python is None:
+            run.error('This Llama-3 backend requires --tokenizer-python (a Transformers 4.40.2+ environment).')
         if args.samples < 1:
             run.error('--samples must be positive')
         for length in args.length or ():

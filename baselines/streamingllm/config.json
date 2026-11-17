@@ -51,5 +51,58 @@
   },
   "length_notes": {
     "131072": "Extend the fixed 4-sink / 4092-recent policy with tokenwise Prefill. No archived 128K evaluation was found."
-  }
+  },
+  "llama3": {
+    "name": "StreamingLLM (Meta-Llama-3-8B Base)",
+    "adaptation": "training_free",
+    "transformers_version": "4.33.0",
+    "model": {
+      "repository": "meta-llama/Meta-Llama-3-8B",
+      "revision": "8cde5ca8380496c9a6cc7ef3a8b46a0372a1d920",
+      "use_safetensors": true,
+      "weight_files": [
+        "model-*.safetensors"
+      ],
+      "expected_config": {
+        "model_type": "llama",
+        "hidden_size": 4096,
+        "num_hidden_layers": 32,
+        "max_position_embeddings": 8192,
+        "rope_scaling": null,
+        "rope_theta": 500000,
+        "num_attention_heads": 32,
+        "num_key_value_heads": 8,
+        "vocab_size": 128256
+      },
+      "sha256": {
+        "model-00001-of-00004.safetensors": "f2c144103072514542e327fa8080bd375cb300f2d453fba9ca3aea81d0d4cf33",
+        "model-00002-of-00004.safetensors": "d9eee5f23d94405d90b7e9ff88b9443fee42f8528a658f54214c2aba7530d80c",
+        "model-00003-of-00004.safetensors": "4b8fbc5e113f69768dd8de84661ea20af8a32b734a9976144b4236c447b40ccc",
+        "model-00004-of-00004.safetensors": "5dc34e6bdf2da9e35f0d93b5c333c870f3677dc43dc3a91ea3a8ad28a1fe1acb"
+      }
+    },
+    "separate_tokenizer": true,
+    "bos_token_id": 128000,
+    "eos_token_id": 128001,
+    "pad_token_id": 128001,
+    "lengths": [
+      8192,
+      16384,
+      32768,
+      65536,
+      131072
+    ],
+    "default_lengths": [
+      8192
+    ],
+    "unavailable_lengths": {},
+    "attention": {
+      "start_size": 4,
+      "recent_size": 4092,
+      "prefill": "tokenwise",
+      "rope_theta": 500000
+    },
+    "length_notes": "New GQA port using the upstream position shift and the shared fixed 4+4092 cache. No archived Llama-3 GPU results."
+  },
+  "adaptation": "training_free"
 }

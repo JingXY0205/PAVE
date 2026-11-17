@@ -1,6 +1,7 @@
 """RetroInfer + fixed-per-request NTK (Llama-2-7B Base pilot): download assets and evaluate prepared RULER inputs."""
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 from itertools import islice
 import json
@@ -30,6 +31,70 @@ TASK_CAPS = {
 SAMPLES_PER_TASK = 500
 SEED = 42
 RULER_REVISION = 'c3f5e3b4f87f97e048793bb510a3a6b19a46bf3a'
+
+
+TOKENIZER_WORKER = '''
+import json
+import sys
+from transformers import AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained(sys.argv[1], local_files_only=True)
+print(json.dumps([tokenizer.bos_token_id, tokenizer.eos_token_id]), flush=True)
+for line in sys.stdin:
+    operation, value = json.loads(line)
+    if operation == 'encode':
+        answer = tokenizer.encode(value, add_special_tokens=False, truncation=False)
+    else:
+        answer = tokenizer.decode(value, skip_special_tokens=True)
+    print(json.dumps(answer), flush=True)
+'''
+
+
+class Llama3Tokenizer:
+    def __init__(self, process):
+        self.process = process
+
+    def read(self):
+        line = self.process.stdout.readline()
+        if not line:
+            raise RuntimeError('Llama-3 tokenizer process stopped. Check its Transformers environment.')
+        return json.loads(line)
+
+    def call(self, operation, value):
+        self.process.stdin.write(json.dumps([operation, value]) + '\n')
+        self.process.stdin.flush()
+        return self.read()
+
+    def __call__(self, prompt, **_kwargs):
+        tokens = self.call('encode', prompt)
+        if not tokens or tokens[0] != 128000:
+            tokens.insert(0, 128000)
+        return {'input_ids': tokens}
+
+    def decode(self, tokens, **_kwargs):
+        return self.call('decode', tokens)
+
+
+@contextmanager
+def llama3_tokenizer(args, config):
+    interpreter = str(args.tokenizer_python or sys.executable)
+    process = subprocess.Popen(
+        [interpreter, '-u', '-c', TOKENIZER_WORKER, str(args.model_path.resolve())],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding='utf-8',
+    )
+    try:
+        tokenizer = Llama3Tokenizer(process)
+        if tokenizer.read() != [config['bos_token_id'], config['eos_token_id']]:
+            raise ValueError('Expected the Meta-Llama-3-8B Base tokenizer')
+        yield tokenizer
+    finally:
+        process.stdin.close()
+        process.stdout.close()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
 
 
 def read_json(path):
@@ -72,7 +137,8 @@ def ensure_source(directory, config, *, fetch=False):
 
 
 def download(args, config):
-    ensure_source(args.source_dir.resolve(), config, fetch=True)
+    if config.get('source'):
+        ensure_source(args.source_dir.resolve(), config, fetch=True)
     if args.model_output is None:
         return
     from huggingface_hub import snapshot_download
@@ -98,8 +164,11 @@ def load_generator(args, config):
     import torch.nn.functional as F
     from flash_attn import flash_attn_func
     from model_hub.llama import LlamaModel
-    from transformers import AutoTokenizer
+    from transformers import AutoConfig, AutoTokenizer
+    from transformers.modeling_rope_utils import _compute_yarn_parameters
 
+    rope = config['rope']
+    eos = config.get('eos_token_id', 2)
     tokenizer = AutoTokenizer.from_pretrained(args.model_path, local_files_only=True)
 
     class HFNumericMixin:
@@ -146,14 +215,20 @@ def load_generator(args, config):
                                    dropout_p=0.0, causal=True)
 
 
-    class RetroInferLlama(HFNumericMixin, LlamaModel):
+    class Llama2Runtime(HFNumericMixin, LlamaModel):
+        pass
+
+    numeric_base = LlamaModel if rope['type'] == 'yarn' else Llama2Runtime
+
+    class RetroInferLlama(numeric_base):
         # These frequencies are set from the actual prefill length before each request.
         frozen_inv_freq = None
+        frozen_attention_scale = 1.0
 
         def _set_cos_sin_cache(self):
             if self.frozen_inv_freq is not None:
                 self.inv_freq = self.frozen_inv_freq
-                self.attention_scaling = 1.0
+                self.attention_scaling = self.frozen_attention_scale
             return super()._set_cos_sin_cache()
 
         def inference(self, inputs_ids, do_sample=False, **_kwargs):
@@ -162,18 +237,17 @@ def load_generator(args, config):
             logits = self.prefill_forward(inputs_ids)
             token = logits.argmax(-1)
             result = [token.item()]
-            if result[-1] == 2 or self.max_new_length == 1:
+            if result[-1] == eos or self.max_new_length == 1:
                 return [result]
             self.move()
             for _ in range(self.max_new_length - 1):
                 logits = self.decode_forward(token)
                 token = logits.argmax(-1)
                 result.append(token.item())
-                if result[-1] == 2:
+                if result[-1] == eos:
                     break
             return [result]
 
-    rope = config['rope']
     model = None
     model_length = None
 
@@ -184,12 +258,20 @@ def load_generator(args, config):
             model = RetroInferLlama(str(args.model_path.resolve()), length, torch.bfloat16,
                                    str(input_ids.device), tokenizer)
             model_length = length
-        head_dim = model.head_dim
         prefill_length = input_ids.shape[1]
-        alpha = max(1.0, rope['factor'] * prefill_length / rope['native_context'] - (rope['factor'] - 1.0))
-        theta = rope['theta'] * alpha ** (head_dim / (head_dim - 2))
-        # Construct inverse frequencies in FP32, as in the archived input export.
-        frequencies = 1.0 / theta ** (torch.arange(0, head_dim, 2, dtype=torch.float32) / head_dim)
+        if rope['type'] == 'yarn':
+            native = AutoConfig.from_pretrained(args.model_path, local_files_only=True)
+            factor = max(1.0, length / rope['native_context'])
+            native.rope_scaling = {
+                'rope_type': 'yarn', 'factor': factor, 'beta_fast': rope['beta_fast'],
+                'beta_slow': rope['beta_slow'], 'attention_factor': 1.0 + 0.1 * math.log(factor),
+            }
+            frequencies, model.frozen_attention_scale = _compute_yarn_parameters(native, torch.device('cpu'))
+        else:
+            head_dim = model.head_dim
+            alpha = max(1.0, rope['factor'] * prefill_length / rope['native_context'] - (rope['factor'] - 1.0))
+            theta = rope['theta'] * alpha ** (head_dim / (head_dim - 2))
+            frequencies = 1.0 / theta ** (torch.arange(0, head_dim, 2, dtype=torch.float32) / head_dim)
         model.frozen_inv_freq = frequencies.to(model.inv_freq.device)
         model._set_cos_sin_cache()
         options = retrieval_options(prefill_length, config['attention'])
@@ -265,13 +347,22 @@ def evaluate(args, config):
     torch.manual_seed(SEED)
     torch.backends.cuda.matmul.allow_tf32 = False
 
-    source_dir = args.source_dir.resolve()
-    ensure_source(source_dir, config)
-    sys.path.insert(0, str(source_dir))
+    if config.get('source'):
+        source_dir = args.source_dir.resolve()
+        ensure_source(source_dir, config)
+        sys.path.insert(0, str(source_dir))
     verify_model(args.model_path, config)
+    if config.get('backbone') == 'llama3':
+        with llama3_tokenizer(args, config) as tokenizer:
+            return evaluate_examples(args, config, torch, device, tokenizer)
+
     tokenizer = AutoTokenizer.from_pretrained(args.model_path, local_files_only=True)
     if (tokenizer.bos_token_id, tokenizer.eos_token_id) != (1, 2):
         raise ValueError('Expected Llama-2 BOS=1 and EOS=2')
+    return evaluate_examples(args, config, torch, device, tokenizer)
+
+
+def evaluate_examples(args, config, torch, device, tokenizer):
 
     protocol = dict(lengths=list(dict.fromkeys(args.length or config['default_lengths'])),
                     samples_per_task=args.samples)
@@ -284,7 +375,8 @@ def evaluate(args, config):
     with predictions.open('x', encoding='utf-8') as stream, torch.inference_mode():
         for sample in iter_inputs(args.data_dir, protocol, tokenizer):
             ids = sample.pop('ids')
-            if ids[0] != 1 or ids.count(1) != 1:
+            bos = config.get('bos_token_id', 1)
+            if ids[0] != bos or ids.count(bos) != 1:
                 raise ValueError(f"Expected one initial BOS for {sample['key']}")
             token_ids = generate(torch.tensor([ids], device=device), sample['cap'], sample['length'])
             row = dict(sample, input_tokens=len(ids), output_tokens=len(token_ids),
@@ -307,24 +399,42 @@ def main():
     )
     commands = parser.add_subparsers(dest='command', required=True)
     fetch = commands.add_parser('download', help='Fetch official artifacts to user-selected directories')
-    fetch.add_argument('--source-dir', type=Path, required=True)
+    fetch.add_argument('--source-dir', type=Path)
     fetch.add_argument('--model-output', type=Path, help='Optional local directory for the pinned checkpoint')
     run = commands.add_parser('evaluate', help='Run RULER with a local model and prepared prompts')
     run.epilog = 'Build the CUDA extensions using the upstream source before evaluation.'
-    run.add_argument('--source-dir', type=Path, required=True, help='Pinned upstream source checkout')
+    run.add_argument('--source-dir', type=Path, help='Pinned upstream source checkout')
+    for command in (fetch, run):
+        command.add_argument('--backbone', choices=('llama2', 'llama3'), default='llama2')
+    run.add_argument('--tokenizer-python', type=Path,
+                     help='Python executable in the Llama-3 tokenizer environment')
     run.add_argument('--model-path', type=Path, required=True)
-    run.add_argument('--data-dir', type=Path, required=True, help='Prepared RULER llama2 directory')
+    run.add_argument('--data-dir', type=Path, required=True, help='Prepared RULER directory for the selected backbone')
     run.add_argument('--output-dir', type=Path, required=True, help='New directory for predictions and scores')
     run.add_argument('--length', '--lengths', dest='length', action='extend', nargs='+', type=int,
                      metavar='TOKENS',
-                     help=f"Specify one or more lengths. Supported: {config['lengths']}. Default: {config['default_lengths']}")
+                     help='Specify one or more token budgets for the selected backbone.')
     run.add_argument('--samples', type=int, default=SAMPLES_PER_TASK,
                      help='Exact prompt count per task. Default: %(default)s')
     run.add_argument('--device', default='cuda')
+    llama3 = config['llama3']
+    run.epilog = (f"Llama-2 lengths: {config['lengths']}. "
+                  + (f"Llama-3 lengths: {llama3['lengths']} (Transformers {llama3['transformers_version']})."
+                     if llama3['lengths'] else 'A Llama-3 profile is unavailable.'))
     args = parser.parse_args()
+    if args.backbone == 'llama3':
+        overrides = config['llama3']
+        config = dict(config, **overrides, backbone='llama3')
+        if not config['lengths']:
+            run.error(next(iter(config['unavailable_lengths'].values())))
+    config.pop('llama3')
+    if config.get('source') and args.source_dir is None:
+        parser.error('--source-dir is required for this backbone')
     if args.command == 'download':
         download(args, config)
     else:
+        if config.get('separate_tokenizer') and args.tokenizer_python is None:
+            run.error('This Llama-3 backend requires --tokenizer-python (a Transformers 4.40.2+ environment).')
         if args.samples < 1:
             run.error('--samples must be positive')
         for length in args.length or ():
