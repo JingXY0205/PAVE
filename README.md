@@ -29,8 +29,7 @@ PAVE/
 ├── training/         # PAVE trainer and backbone configs
 ├── arguments.py      # Launcher arguments
 ├── framework.jpg     # Framework overview
-├── main_dc.py        # Ablations, design choices, and hyperparameters
-├── my_main.py        # Data preparation, training, and benchmark evaluation
+├── my_main.py        # Python command dispatcher
 ├── run.sh            # Command launcher
 ├── utils.py          # Shared launcher utilities
 └── requirements.txt

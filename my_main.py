@@ -1,4 +1,4 @@
-"""Launch PAVE data preparation, training, and benchmark evaluation."""
+"""Launch PAVE data preparation, training, evaluation, and analysis."""
 
 from arguments import parse_command
 from utils import ROOT, run_module
@@ -13,6 +13,9 @@ COMMANDS = {
     "ruler": ("evaluation.ruler", "Evaluate PAVE on RULER"),
     "l-eval": ("evaluation.l_eval", "Generate PAVE predictions for L-Eval"),
     "ppl": ("evaluation.ppl", "Evaluate PAVE perplexity"),
+    "ablation": ("evaluation.ablation", "Evaluate the component ablations on RULER"),
+    "design-choice": ("evaluation.design_choice", "Compare summary and retrieval alternatives"),
+    "hyper": ("evaluation.hyper", "Sweep salience temperature and sparsity decay"),
 }
 
 
@@ -38,7 +41,7 @@ def main(argv=None):
     choices["baseline"] = "Download, evaluate, or train a baseline"
     args = parse_command(
         __doc__, choices, argv,
-        extra_help="Use COMMAND --help for its options. See main_dc.py for ablation, hyper, and design-choice.",
+        extra_help="Use COMMAND --help for its options.",
     )
     if args.command == "baseline":
         return run_baseline(args.options)
