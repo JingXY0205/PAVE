@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from PAVE.inference import generate_tokens, load
+from pave.inference import generate_tokens, load
 from .checks import verify_backbone, verify_sha256
 from .ruler import FULL_PROTOCOL
 

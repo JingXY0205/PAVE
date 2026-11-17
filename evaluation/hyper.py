@@ -9,7 +9,7 @@ from statistics import mean
 
 from .checks import verify_backbone, verify_sha256, write_json
 from .ruler import FULL_PROTOCOL
-from PAVE.inference import load
+from pave.inference import load
 
 INPUT_SHA256 = '55d9584c88057161e635fb4f77b999bf865cbc3dee2f1121555df222edfe7391'
 DEFAULT = (0.5, 3.0)

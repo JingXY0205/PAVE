@@ -4,7 +4,7 @@ from itertools import chain
 import json
 from pathlib import Path
 
-from PAVE.inference import load
+from pave.inference import load
 from .checks import read_json, verify_backbone, verify_sha256, write_json
 from .hyper import evaluate_window, ppl_arguments, summarize_windows
 from .ruler import FULL_PROTOCOL

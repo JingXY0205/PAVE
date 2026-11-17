@@ -101,7 +101,7 @@ def summarize(records, protocol):
 def worker(args, protocol, install_variant):
     import torch
     from transformers import AutoTokenizer
-    from PAVE.inference import generate_tokens, load
+    from pave.inference import generate_tokens, load
 
     torch.set_num_threads(8)
     torch.manual_seed(protocol['seed'])

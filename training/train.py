@@ -22,7 +22,7 @@ from dataset.longalpaca.prepare import DATASET_ID, MANIFEST, REVISION, SEED, SPL
 
 if TYPE_CHECKING:
     import torch
-    from PAVE import model as core
+    from pave import model as core
 
 
 TOKENIZER_WORKER = """
@@ -178,7 +178,7 @@ def split_manifest(path):
 def load_model(args, profile):
     import torch
     import transformers
-    from PAVE import model as core
+    from pave import model as core
 
     if transformers.__version__ != profile["transformers_version"]:
         raise RuntimeError(f"Use Transformers {profile['transformers_version']} for PAVE training")
@@ -213,7 +213,7 @@ def load_model(args, profile):
 
 def save_checkpoint(path, model, pave, profile, step, validation_ce):
     import torch
-    from PAVE import model as core
+    from pave import model as core
 
     temporary = path.with_suffix(".tmp")
     payload = {
@@ -276,7 +276,7 @@ class TrainingPrefill:
 
     @contextmanager
     def install(self, model):
-        from PAVE import model as core
+        from pave import model as core
 
         def representative_forward(module, blocks):
             return self.representatives(module, blocks)
@@ -313,7 +313,7 @@ class TrainingPrefill:
     def representatives(self, module, blocks):
         import torch
         from torch.nn import functional as F
-        from PAVE import model as core
+        from pave import model as core
 
         # Use the same projections and temperature-scaled pool as PAVE inference.
         dtype = blocks.dtype
@@ -334,7 +334,7 @@ class TrainingPrefill:
 
     def gated_values(self, prepare, attn, k, v, kb, vb, ids, proposal, state):
         import torch
-        from PAVE import model as core
+        from pave import model as core
 
         sk, sv = prepare(attn, k, v, kb, vb, ids, proposal, state)
         if not torch.is_grad_enabled():
@@ -363,14 +363,14 @@ class TrainingPrefill:
 
     @staticmethod
     def token_gate(gate, dtype):
-        from PAVE import model as core
+        from pave import model as core
 
         return gate.repeat_interleave(core.BLOCK_SIZE, dim=-1)[:, None, :, None].to(dtype=dtype)
 
     def layer_forward(self, index, forward, hidden_states, *args, **kwargs):
         import torch
         from torch.utils.checkpoint import checkpoint
-        from PAVE import model as core
+        from pave import model as core
 
         parent = core._STATE.get()
         incoming_rates = parent.keep_rates.copy()
